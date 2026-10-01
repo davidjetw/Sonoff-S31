@@ -1,0 +1,8 @@
+.esphome/
+.pio/
+__pycache__/
+*.pyc
+secrets.yaml
+*-local.yaml
+site/
+build.log

@@ -1,0 +1,52 @@
+# 共用 OTA 設定；由 sonoff-s31.yaml 載入。
+substitutions:
+  firmware_version: "1.0.0"
+  firmware_manifest_url: "https://davidjetw.github.io/Sonoff-S31/firmware/manifest.json"
+
+esphome:
+  project:
+    name: davidjetw.sonoff_s31
+    version: ${firmware_version}
+
+http_request:
+  verify_ssl: false
+  timeout: 30s
+  tls_buffer_size_rx: 16384
+  tls_buffer_size_tx: 512
+
+ota:
+  - platform: http_request
+
+update:
+  - platform: http_request
+    id: github_firmware_update
+    name: "Firmware Update"
+    entity_category: config
+    source: ${firmware_manifest_url}
+    update_interval: 6h
+
+button:
+  - platform: template
+    name: "Check Firmware Update"
+    entity_category: config
+    on_press:
+      - update.check: github_firmware_update
+
+debug:
+  update_interval: 30s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: diagnostic
+    block:
+      name: "Heap Max Block"
+      entity_category: diagnostic
+
+text_sensor:
+  - platform: template
+    name: "Firmware Version"
+    entity_category: diagnostic
+    lambda: 'return std::string("${firmware_version}");'
+    update_interval: 60s

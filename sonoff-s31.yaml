@@ -1,0 +1,389 @@
+# Based on the supplied S31 configuration. OTA additions are in ota.yaml.
+packages:
+  github_ota: !include ota.yaml
+
+substitutions:
+  name: "sonoff-s31"
+  friendly_name: Sonoff S31
+  device_name: sonoff-s31
+  upper_devicename: S31
+  comment: SONOFF S31 
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: True
+
+  on_boot:
+    priority: -100
+    then:
+      # 1. Relay 開機狀態恢復
+      - lambda: |-
+          if (id(startup_mode) == 0) {
+            id(relay).turn_off();
+          } else if (id(startup_mode) == 1) {
+            id(relay).turn_on();
+          }
+      # 2. 開機時根據 WiFi Indicator 設定初始化 LED
+      - if:
+          condition:
+            lambda: 'return id(wifi_indicator_enabled);'
+          then:
+            - light.turn_on: led
+          else:
+            - light.turn_off: led
+
+esp8266:
+  board: esp12e
+  restore_from_flash: true
+  early_pin_init: false
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+wifi:
+  ap:
+    password: "12345678"
+  min_auth_mode: WPA2
+
+captive_portal:
+
+web_server:
+  port: 80
+  version: 3
+
+logger:
+  baud_rate: 0
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+uart:
+  rx_pin: RX
+  baud_rate: 4800
+  parity: EVEN
+
+globals:
+  - id: startup_mode
+    type: int
+    restore_value: true
+    initial_value: '2'
+  - id: wifi_indicator_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+  - id: clear_energy
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: past_overload_led_stat
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+
+script:
+  - id: s31overloadtimer
+    mode: single
+    then:
+      - delay: !lambda 'return id(overload_trigger_timing).state * 1000;'
+      - switch.turn_off: relay
+      - if:
+          condition:
+            lambda: 'return id(overload_protect_recovery).current_option() == "ON";'
+          then:
+            - script.execute: s31overloadrecovery
+      - if:
+          condition:
+            light.is_on: led
+          then:
+            - lambda: 'id(past_overload_led_stat) = true;'
+          else:
+            - lambda: 'id(past_overload_led_stat) = false;'
+      - light.turn_on:
+          id: led
+          effect: "Normal Overload Indicator"
+      - script.execute: s31overload_led
+
+  - id: s31overloadrecovery
+    mode: restart
+    then:
+      - delay: !lambda 'return id(overload_recovery_timing).state * 1000;'
+      - switch.turn_on: relay
+
+  - id: s31overload_led
+    mode: restart
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: s31overload_ems
+          then:
+            - if:
+                condition:
+                  lambda: 'return id(overload_protect_recovery).current_option() == "ON";'
+                then:
+                  - delay: !lambda 'return id(overload_recovery_timing).state * 1000;'
+                else:
+                  - delay: 30s
+            - light.turn_on:
+                id: led
+                effect: none
+            - if:
+                condition:
+                  lambda: 'return id(past_overload_led_stat) == false;'
+                then:
+                  - light.turn_off: led
+
+  - id: s31overload_ems
+    mode: single
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: s31overload_led
+          then:
+            - light.turn_on:
+                id: led
+                effect: "Emergency Overload Indicator"
+            - delay: 60s
+            - light.turn_on:
+                id: led
+                effect: none
+            - if:
+                condition:
+                  lambda: 'return id(past_overload_led_stat) == false;'
+                then:
+                  - light.turn_off: led
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Button"
+    on_press:
+      - switch.toggle: relay
+  - platform: status
+    name: "Status"
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    update_interval: 60s
+
+  - platform: cse7766
+    current:
+      name: "Current"
+      id: current
+      device_class: current
+      accuracy_decimals: 2
+      unit_of_measurement: A
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 2
+        - throttle: 1s
+        - lambda: "return (x < 0.01) ? 0.0 : x;"
+        - delta: 0.01
+      on_value_range:
+        - above: 16.0
+          then:
+            - switch.turn_off: relay
+            - lambda: |-
+                id(past_overload_led_stat) = id(led).current_values.is_on();
+            - script.execute: s31overload_ems
+      on_value:
+        then:
+          - if:
+              condition:
+                and:
+                  - lambda: 'return x > id(overload_current).state;'
+                  - lambda: 'return id(overload_protect).current_option() == "ON";'
+                  - not:
+                      script.is_running: s31overloadtimer
+              then:
+                - script.execute: s31overloadtimer
+          - if:
+              condition:
+                and:
+                  - lambda: 'return x < id(overload_current).state;'
+                  - script.is_running: s31overloadtimer
+              then:
+                - script.stop: s31overloadtimer
+
+    voltage:
+      name: "Voltage"
+      id: voltage
+      device_class: voltage
+      unit_of_measurement: V
+      accuracy_decimals: 1
+      filters:
+        - delta: 0.1
+        - throttle: 1s
+
+    power:
+      name: "Wattage"
+      id: "wattage" 
+      device_class: power
+      unit_of_measurement: W
+      accuracy_decimals: 1
+      filters:
+        - throttle_average: 0.5s
+
+  - platform: total_daily_energy
+    name: "Total Daily Energy"
+    power_id: "wattage"
+    device_class: energy
+    state_class: total_increasing
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+
+  - platform: uptime
+    name: "Uptime"
+    filters:
+      - lambda: return x / 3600.0;
+    unit_of_measurement: "h"
+    accuracy_decimals: 1
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP"
+      icon: "mdi:ip"
+    ssid:
+      name: SSID
+      icon: "mdi:wifi"
+  - platform: template
+    name: "Restart Reason"
+    lambda: |-
+      return std::string(ESP.getResetReason().c_str());
+    update_interval: 1min
+
+switch:
+  - platform: gpio
+    name: "Relay"
+    icon: "mdi:power-socket-us"
+    pin: GPIO12
+    id: relay
+    restore_mode: RESTORE_DEFAULT_OFF
+
+  - platform: template
+    name: "WiFi Indicator"
+    icon: "mdi:wifi-star"
+    id: wifi_indicator_switch
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - lambda: 'id(wifi_indicator_enabled) = true;'
+      - light.turn_on: led
+    turn_off_action:
+      - lambda: 'id(wifi_indicator_enabled) = false;'
+      - light.turn_off: led
+
+button:
+  - platform: restart
+    name: "Restart"
+
+select:
+  - platform: template
+    name: "通電狀態"
+    icon: "mdi:refresh-auto"
+    id: relay_boot_mode
+    entity_category: config
+    optimistic: true
+    options: ["OFF", "ON", "RESTORE"]
+    initial_option: "RESTORE"
+    restore_value: true
+    on_value:
+      then:
+        - lambda: |-
+            if (x == "OFF") id(startup_mode) = 0;
+            else if (x == "ON") id(startup_mode) = 1;
+            else id(startup_mode) = 2;
+  - platform: template
+    name: "Overload Protection"
+    icon: "mdi:alert"
+    id: overload_protect
+    entity_category: config
+    options: ["ON", "OFF"]
+    initial_option: "ON"
+    optimistic: True
+    restore_value: True
+  - platform: template
+    name: "Overload Auto Recovery"
+    icon: "mdi:restart"
+    id: overload_protect_recovery
+    entity_category: config
+    options: ["ON", "OFF"]
+    initial_option: "ON"
+    optimistic: True
+    restore_value: True
+
+number:
+  - platform: template
+    name: "過載電流設定"
+    icon: "mdi:stack-overflow"
+    id: overload_current
+    entity_category: config
+    optimistic: true
+    min_value: 0.1
+    max_value: 15
+    step: 0.1
+    initial_value: 15
+    restore_value: True
+  - platform: template
+    name: "Overload Delay (sec)"
+    icon: "mdi:timer-alert"
+    id: overload_trigger_timing
+    entity_category: config
+    optimistic: true
+    min_value: 1
+    max_value: 15
+    step: 1
+    initial_value: 5
+    restore_value: True
+  - platform: template
+    name: "Overload Recovery Delay (sec)"
+    icon: "mdi:timer-sync"
+    id: overload_recovery_timing
+    entity_category: config
+    optimistic: true
+    min_value: 15
+    max_value: 60
+    step: 5
+    initial_value: 30
+    restore_value: True
+
+output:
+  - platform: esp8266_pwm
+    pin:
+      number: GPIO13
+      inverted: True
+    id: blueled_pwm
+
+light:
+  # 系統指示燈：負責 WiFi 狀態報警（無法被 User 完全關閉，代表最高優先權）
+  - platform: status_led
+    id: blueled_status
+    output: blueled_pwm
+    internal: true
+  
+  # 用戶指示燈：負責恆亮控制與過載特效
+  - platform: monochromatic
+    name: "${upper_devicename} Blue LED"
+    output: blueled_pwm
+    id: led
+    disabled_by_default: true
+    effects:
+      - pulse:
+          name: Emergency Overload Indicator
+          update_interval: 0.5s
+      - pulse:
+          name: Normal Overload Indicator
+          update_interval: 1s
