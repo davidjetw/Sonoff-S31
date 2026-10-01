@@ -1,0 +1,26 @@
+name: Validate and compile S31
+on:
+  push:
+    branches: [main]
+    paths: ["**.yaml", "requirements.txt", "scripts/**"]
+  pull_request:
+    paths: ["**.yaml", "requirements.txt", "scripts/**"]
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: esphome config sonoff-s31.yaml
+      - run: esphome compile sonoff-s31.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s31-validation-ota
+          path: .esphome/build/sonoff-s31/.pioenvs/sonoff-s31/firmware.ota.bin
+          if-no-files-found: error
