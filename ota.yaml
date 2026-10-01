@@ -1,6 +1,6 @@
 # 共用 OTA 設定；由 sonoff-s31.yaml 載入。
 substitutions:
-  firmware_version: "1.0.0"
+  firmware_version: "26.10.02+1"
   firmware_manifest_url: "https://davidjetw.github.io/Sonoff-S31/firmware/manifest.json"
 
 esphome:
@@ -23,7 +23,7 @@ update:
     name: "Firmware Update"
     entity_category: config
     source: ${firmware_manifest_url}
-    update_interval: 6h
+    update_interval: 24h
 
 button:
   - platform: template

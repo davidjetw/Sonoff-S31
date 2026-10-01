@@ -15,7 +15,7 @@
 
 1. 儲存原本在 ESPHome Device Builder 中的 YAML 備份。
 2. 在 GitHub 的 **Settings → Pages → Build and deployment → Source** 選 **GitHub Actions**。發布 workflow 也會嘗試啟用 Pages；若權限不允許，請手動設定。
-3. 在 **Actions → Publish S31 OTA → Run workflow**，選 `main`，版本填 `1.0.0`。
+3. 在 **Actions → Publish S31 OTA → Run workflow**，選 `main`，版本填 `26.10.02+1`，或該次發布的新版本號。
 4. 等待 build 和 deploy 都成功。確認下列 URL 能直接顯示 JSON：
    `https://davidjetw.github.io/Sonoff-S31/firmware/manifest.json`
 5. 把 `ota.yaml` 放進 HA 的 ESPHome 設定目錄，在原本 S31 YAML 最外層加入：
@@ -35,11 +35,13 @@
 
 1. 在 GitHub 修改並提交 `sonoff-s31.yaml`／`ota.yaml` 的功能。
 2. 等 **Validate and compile S31** 成功。
-3. **Publish S31 OTA → Run workflow**，填新的版本，例如 `1.0.1`。workflow 將同一版本寫入韌體及 manifest。
+3. **Publish S31 OTA → Run workflow**，填新的版本，例如 `26.10.02+2`。workflow 將同一版本寫入韌體及 manifest。
 4. 建議同時更新 `ota.yaml` 裡的 `firmware_version`，讓本機編譯時的版本與發布版本一致。不要用較舊程式碼重複發布相同版本。
-5. HA 按 `Check Firmware Update`，再從 `Firmware Update` 安裝。裝置每 6 小時只檢查版本，不會自動安裝。
+5. HA 按 `Check Firmware Update`，再從 `Firmware Update` 安裝。裝置每 24 小時只檢查版本，不會自動安裝。
 
 請依序先在一顆 S31 上測試，確認功率、用電量、繼電器及記憶體正常，再更新第二顆。OTA 完成會重啟，繼電器會依原本通電狀態設定操作，請安排可中斷負載的時間。
+
+版本格式為 `YY.MM.DD+次數`，日期依台灣時間。例如 `26.10.02+1` 是 2026 年 10 月 2 日第一版，同日第二版用 `26.10.02+2`，隔天第一版用 `26.10.03+1`。次數由發布時手動填入，流程會檢查日期與格式，但不會自動計數。S31 以清單與已安裝版本字串是否相同判斷更新，因此 `+1`、`+2` 可以區分；請不要重複發布相同版本號或把清單指回舊版。
 
 ## 更新來源與檔案
 
