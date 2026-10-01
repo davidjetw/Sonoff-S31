@@ -1,5 +1,6 @@
 """Package an ESPHome OTA binary and its real checksum for GitHub Pages."""
 import argparse
+from datetime import date
 import hashlib
 import html
 import json
@@ -8,9 +9,17 @@ import shutil
 from pathlib import Path
 
 
+def validate_version(version: str) -> str:
+    match = re.fullmatch(r"([0-9]{2})[.]([0-9]{2})[.]([0-9]{2})[+]([1-9][0-9]*)", version)
+    if not match:
+        raise ValueError("Use YY.MM.DD+REVISION, e.g. 26.10.02+1")
+    year, month, day, _ = map(int, match.groups())
+    date(2000 + year, month, day)
+    return version
+
+
 def package(binary: Path, version: str, output: Path) -> dict:
-    if not re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", version):
-        raise ValueError("Version must be MAJOR.MINOR.PATCH, e.g. 1.0.1")
+    validate_version(version)
     data = binary.read_bytes()
     if len(data) < 1024 or data[0] != 0xE9:
         raise ValueError("Expected an uncompressed ESP8266 OTA image (magic 0xE9)")
