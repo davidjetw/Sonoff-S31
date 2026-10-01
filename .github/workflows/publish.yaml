@@ -1,0 +1,130 @@
+name: Publish S31 OTA
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Firmware version, e.g. 1.0.1 (increase for each release)"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: s31-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    env:
+      FIRMWARE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Validate release version
+        run: |
+          python - <<'PY'
+          import os, re
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', os.environ['FIRMWARE_VERSION']), 'Use MAJOR.MINOR.PATCH'
+          PY
+      - run: pip install -r requirements.txt
+      - name: Compile release firmware
+        run: esphome -s firmware_version "$FIRMWARE_VERSION" compile sonoff-s31.yaml
+      - name: Make OTA manifest from compiled binary
+        run: |
+          python scripts/make_manifest.py \
+            --binary .esphome/build/sonoff-s31/.pioenvs/sonoff-s31/firmware.ota.bin \
+            --version "$FIRMWARE_VERSION" --output site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s31-release-${{ inputs.version }}
+          path: site/firmware/
+          if-no-files-found: error
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy OTA files
+        id: deployment
+        uses: actions/deploy-pages@v4
+patch:
+    inputs:
+      version:
+        description: "Firmware version, e.g. 1.0.1 (increase for each release)"
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: s31-pages
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    env:
+      FIRMWARE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Validate release version
+        run: |
+          python - <<'PY'
+          import os, re
+          assert re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', os.environ['FIRMWARE_VERSION']), 'Use MAJOR.MINOR.PATCH'
+          PY
+      - run: pip install -r requirements.txt
+      - name: Compile release firmware
+        run: esphome -s firmware_version "$FIRMWARE_VERSION" compile sonoff-s31.yaml
+      - name: Make OTA manifest from compiled binary
+        run: |
+          python scripts/make_manifest.py \
+            --binary .esphome/build/sonoff-s31/.pioenvs/sonoff-s31/firmware.ota.bin \
+            --version "$FIRMWARE_VERSION" --output site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s31-release-${{ inputs.version }}
+          path: site/firmware/
+          if-no-files-found: error
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy OTA files
+        id: deployment
+        uses: actions/deploy-pages@v4
